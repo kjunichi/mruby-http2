@@ -31,7 +31,7 @@ static mruby_cb_list *mruby_cb_list_init(mrb_state *mrb)
 static unsigned int mrb_http2_config_get_worker(mrb_state *mrb, mrb_value args, mrb_value w)
 {
   int worker;
-
+#ifndef _WIN32
   // worker => fixnum or "auto"
   if (!mrb_nil_p(w)) {
     if (mrb_type(w) == MRB_TT_STRING && mrb_equal(mrb, w, mrb_str_new_lit(mrb, "auto"))) {
@@ -54,6 +54,9 @@ static unsigned int mrb_http2_config_get_worker(mrb_state *mrb, mrb_value args, 
   }
 
 #if !defined(__linux__) || !defined(SO_REUSEPORT)
+  worker = 0;
+#endif
+#else
   worker = 0;
 #endif
   return worker;

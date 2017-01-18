@@ -26,7 +26,12 @@
 */
 
 #include "mrb_http2.h"
+#ifndef _WIN32
 #include <pwd.h>
+#else
+#define alloca _alloca
+#define gmtime_r gmtime
+#endif
 
 static const char *MONTH[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
 
@@ -54,6 +59,7 @@ void debug_header(const char *tag, const uint8_t *name, size_t namelen, const ui
   fprintf(stderr, "%s: header={name=%s, value=%s}\n", tag, key, val);
 }
 
+#ifndef _WIN32
 uid_t mrb_http2_get_uid(mrb_state *mrb, const char *user)
 {
   struct passwd *pw;
@@ -69,7 +75,7 @@ uid_t mrb_http2_get_uid(mrb_state *mrb, const char *user)
   }
   return pw->pw_uid;
 }
-
+#endif
 static char *dig_memcpy(char *buf, int n, size_t len)
 {
   char *p;
@@ -90,7 +96,13 @@ void set_http_date_str(time_t *time, char *date)
   struct tm t;
   char *p = date;
 
+#ifndef _WIN32
   if (gmtime_r(time, &t) == NULL) {
+#else
+  struct tm *tp = gmtime(time);
+  memcpy(&t, tp,sizeof(t));
+  if (tp != NULL) {
+#endif
     return;
   }
 

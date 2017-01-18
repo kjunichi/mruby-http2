@@ -13,23 +13,41 @@
 #include <string.h>
 #include <stdint.h>
 #include <time.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 #include <fcntl.h>
 #include <ctype.h>
 #include <sys/types.h>
+#ifndef _WIN32
 #include <sys/socket.h>
+#else
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <io.h>
+#endif
 #include <sys/stat.h>
+#ifndef _WIN32
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <poll.h>
 #include <signal.h>
+#endif
 #include <assert.h>
+
+#ifndef _WIN32
 #include <pthread.h>
 #include <err.h>
+#endif
 
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+
+#ifdef _MSC_VER
+#include <BaseTsd.h>
+typedef SSIZE_T ssize_t;
+#endif
 
 #include <nghttp2/nghttp2.h>
 
@@ -84,9 +102,15 @@
   mrb_http2_create_nv(MRB, NV, (uint8_t *)RSTRING_PTR(NAME), (uint16_t)(RSTRING_LEN(NAME)),                            \
                       (uint8_t *)RSTRING_PTR(VALUE), (uint16_t)(RSTRING_LEN(VALUE)))
 
+#ifdef _WIN32
+typedef int uid_t;
+#endif 
+
 void mrb_free_unless_null(mrb_state *mrb, void *ptr);
 void debug_header(const char *tag, const uint8_t *name, size_t namelen, const uint8_t *value, size_t valuelen);
+#ifndef _WIN32
 uid_t mrb_http2_get_uid(mrb_state *mrb, const char *user);
+#endif
 void set_http_date_str(time_t *time, char *date);
 int mrb_http2_get_nv_id(nghttp2_nv *nva, size_t nvlen, const char *key);
 void mrb_http2_free_nva(mrb_state *mrb, nghttp2_nv *nva, size_t nvlen);

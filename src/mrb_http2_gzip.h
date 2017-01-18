@@ -10,6 +10,10 @@
 #include <config.h>
 #endif /* HAVE_CONFIG_H */
 #include <zlib.h>
+#ifdef _MSC_VER
+#include <BaseTsd.h>
+typedef SSIZE_T ssize_t;
+#endif
 #include <nghttp2/nghttp2.h>
 
 #ifdef __cplusplus

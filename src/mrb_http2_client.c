@@ -524,7 +524,13 @@ static int mrb_http2_connect_to(mrb_state *mrb, const char *host, uint16_t port)
     if (rv == 0) {
       break;
     }
+
+    #ifndef _WIN32
     close(fd);
+    #else
+    _close(fd);
+    #endif
+
     fd = -1;
   }
   freeaddrinfo(res);
@@ -534,6 +540,7 @@ static int mrb_http2_connect_to(mrb_state *mrb, const char *host, uint16_t port)
 static void mrb_http2_make_non_block(mrb_state *mrb, int fd)
 {
   int flags, rv;
+  #ifndef _WIN32
   while ((flags = fcntl(fd, F_GETFL, 0)) == -1 && errno == EINTR)
     ;
   if (flags == -1) {
@@ -544,6 +551,13 @@ static void mrb_http2_make_non_block(mrb_state *mrb, int fd)
   if (rv == -1) {
     mrb_raisef(mrb, E_RUNTIME_ERROR, "fcntl: %S", mrb_str_new_cstr(mrb, strerror(errno)));
   }
+  #else
+  flags = 1;
+  rv = ioctlsocket(fd, FIONBIO, &flags);
+  if (rv != NO_ERROR) {
+    mrb_raisef(mrb, E_RUNTIME_ERROR, "ioctlsocket: %S", mrb_str_new_cstr(mrb, "error")); // TODO
+  }
+  #endif
 }
 
 static void mrb_http2_set_tcp_nodelay(mrb_state *mrb, int fd)
@@ -630,8 +644,14 @@ static mrb_value mrb_http2_fetch_uri(mrb_state *mrb, const struct mrb_http2_uri_
   struct mrb_http2_request_t req;
   struct mrb_http2_conn_t conn;
   int rv;
+  #ifndef _WIN32
   nfds_t npollfds = 1;
   struct pollfd pollfds[1];
+  #else
+  ULONG npollfds = 1;
+  WSAPOLLFD pollfds[1];
+  #endif
+
   mrb_http2_request_init(mrb, &req, uri);
 
   fd = mrb_http2_connect_to(mrb, req.host, req.port);
@@ -678,7 +698,11 @@ static mrb_value mrb_http2_fetch_uri(mrb_state *mrb, const struct mrb_http2_uri_
   mrb_http2_ctl_poll(mrb, pollfds, &conn);
 
   while (nghttp2_session_want_read(conn.session) || nghttp2_session_want_write(conn.session)) {
+    #ifndef _WIN32
     int nfds = poll(pollfds, npollfds, -1);
+    #else
+    int nfds = WSAPoll(pollfds, npollfds, -1);
+    #endif
     if (nfds == -1) {
       mrb_raisef(mrb, E_RUNTIME_ERROR, "poll: %S", mrb_str_new_cstr(mrb, strerror(errno)));
     }
@@ -697,8 +721,12 @@ static mrb_value mrb_http2_fetch_uri(mrb_state *mrb, const struct mrb_http2_uri_
   SSL_shutdown(ssl);
   SSL_free(ssl);
   SSL_CTX_free(ssl_ctx);
+  #ifndef _WIN32
   shutdown(fd, SHUT_WR);
-  close(fd);
+  #else 
+  shutdown(fd, SD_SEND);
+  #endif
+  closesocket(fd);
   mrb_http2_request_free(mrb, &req);
 
   return conn.response;
@@ -758,8 +786,13 @@ static mrb_value mrb_http2_client_create_session(mrb_state *mrb, mrb_value self)
 
 static mrb_value mrb_http2_client_request_stream(mrb_state *mrb, mrb_value self)
 {
-  struct pollfd pollfds[1];
+  #ifndef _WIN32
   nfds_t npollfds = 1;
+  struct pollfd pollfds[1];
+  #else
+  ULONG npollfds = 1;
+  WSAPOLLFD pollfds[1];
+  #endif
   mrb_http2_context_t *ctx = DATA_PTR(self);
 
   if (ctx->conn->fd == -1) {
@@ -774,7 +807,11 @@ static mrb_value mrb_http2_client_request_stream(mrb_state *mrb, mrb_value self)
   mrb_http2_ctl_poll(mrb, pollfds, ctx->conn);
 
   while (nghttp2_session_want_read(ctx->conn->session) || nghttp2_session_want_write(ctx->conn->session)) {
+    #ifndef _WIN32
     int nfds = poll(pollfds, npollfds, -1);
+    #else 
+    int nfds = WSAPoll(pollfds, npollfds, -1);
+    #endif
     if (nfds == -1) {
       mrb_raisef(mrb, E_RUNTIME_ERROR, "poll: %S", mrb_str_new_cstr(mrb, strerror(errno)));
     }
@@ -800,7 +837,11 @@ static mrb_value mrb_http2_client_delete_session(mrb_state *mrb, mrb_value self)
   SSL_shutdown(ctx->conn->ssl);
   SSL_free(ctx->conn->ssl);
   SSL_CTX_free(ctx->conn->ssl_ctx);
+  #ifndef _WIN32
   shutdown(ctx->conn->fd, SHUT_WR);
+  #else
+  shutdown(ctx->conn->fd, SD_SEND);
+  #endif
   close(ctx->conn->fd);
   ctx->conn->fd = -1;
   mrb_http2_request_free(mrb, ctx->req);
@@ -818,8 +859,13 @@ static mrb_value mrb_http2_get_uri(mrb_state *mrb, mrb_http2_context_t *ctx)
   SSL *ssl;
   int rv;
   int fd;
-  struct pollfd pollfds[1];
+  #ifndef _WIN32
   nfds_t npollfds = 1;
+  struct pollfd pollfds[1];
+  #else
+  ULONG npollfds = 1;
+  WSAPOLLFD pollfds[1];
+  #endif
 
   fd = mrb_http2_connect_to(mrb, ctx->req->host, ctx->req->port);
   if (fd == -1) {
@@ -864,7 +910,12 @@ static mrb_value mrb_http2_get_uri(mrb_state *mrb, mrb_http2_context_t *ctx)
   mrb_http2_ctl_poll(mrb, pollfds, ctx->conn);
 
   while (nghttp2_session_want_read(ctx->conn->session) || nghttp2_session_want_write(ctx->conn->session)) {
+    #ifndef _WIN32
     int nfds = poll(pollfds, npollfds, -1);
+    #else
+    int nfds = WSAPoll(pollfds, npollfds, -1);
+    #endif
+
     if (nfds == -1) {
       mrb_raisef(mrb, E_RUNTIME_ERROR, "poll: %S", mrb_str_new_cstr(mrb, strerror(errno)));
     }
@@ -883,7 +934,11 @@ static mrb_value mrb_http2_get_uri(mrb_state *mrb, mrb_http2_context_t *ctx)
   SSL_shutdown(ssl);
   SSL_free(ssl);
   SSL_CTX_free(ssl_ctx);
+  #ifndef _WIN32
   shutdown(fd, SHUT_WR);
+  #else
+  shutdown(fd, SD_SEND);
+  #endif
   close(fd);
   mrb_http2_request_free(mrb, ctx->req);
   mrb_http2_uri_free(mrb, ctx->uri);
@@ -1003,7 +1058,9 @@ static mrb_value mrb_http2_client_set_uri(mrb_state *mrb, mrb_value self)
 static mrb_value mrb_http2_client_init(mrb_state *mrb, mrb_value self)
 {
   mrb_http2_context_t *ctx;
+  #ifndef _WIN32
   struct sigaction act;
+  #endif
 
   ctx = (mrb_http2_context_t *)DATA_PTR(self);
   if (ctx) {
@@ -1023,10 +1080,11 @@ static mrb_value mrb_http2_client_init(mrb_state *mrb, mrb_value self)
   ctx->req = NULL;
   DATA_PTR(self) = ctx;
 
+  #ifndef _WIN32
   memset(&act, 0, sizeof(struct sigaction));
   act.sa_handler = SIG_IGN;
   sigaction(SIGPIPE, &act, 0);
-
+  #endif
   SSL_load_error_strings();
   SSL_library_init();
 
@@ -1037,13 +1095,17 @@ static mrb_value mrb_http2_client_get(mrb_state *mrb, mrb_value self)
 {
   char *uri;
   struct mrb_http2_uri_t uri_data;
+  #ifndef _WIN32
   struct sigaction act;
+  #endif
   int rv;
 
   mrb_get_args(mrb, "z", &uri);
+  #ifndef _WIN32
   memset(&act, 0, sizeof(struct sigaction));
   act.sa_handler = SIG_IGN;
   sigaction(SIGPIPE, &act, 0);
+  #endif
 
   SSL_load_error_strings();
   SSL_library_init();

@@ -26,10 +26,20 @@
 #include "mruby/string.h"
 #include "mruby/compile.h"
 
+#ifndef _WIN32
 #include <sys/wait.h>
 #include <sys/resource.h>
 #include <sys/queue.h>
 #include <unistd.h>
+#else
+#ifndef TAILQ_FOREACH
+#define TAILQ_FOREACH(var, head, field) \
+  for ((var) = ((head)->tqh_first); \
+    (var); \
+    (var) = ((var)->field.tqe_next))
+#endif /* LIST_FOREACH */
+#define alloca _alloca
+#endif
 #include <stdbool.h>
 
 typedef struct st_mrb_http2_iovec_t {
@@ -184,7 +194,11 @@ static const struct mrb_data_type mrb_http2_server_type = {
 
 static const char *npn_proto = MRB_HTTP2_NPN_PROTOCOLS;
 #if MRB_HTTP2_USE_ALPN
+#ifndef _WIN32
 static const mrb_http2_iovec_t alpn_proto[] = {MRB_HTTP2_ALPN_PROTOCOLS, {}};
+#else 
+static const mrb_http2_iovec_t alpn_proto[] = {MRB_HTTP2_ALPN_PROTOCOLS, {NULL,NULL}};
+#endif
 #endif
 
 //
@@ -693,7 +707,11 @@ static int error_reply(app_context *app_ctx, nghttp2_session *session, http2_str
   r->reshdrslen += 1;
 
   TRACER;
+  #ifndef _WIN32
   rv = pipe(pipefd);
+  #else
+  rv = _pipe(pipefd, 65535, _O_BINARY);
+  #endif
   if (rv != 0) {
     mrb_warn(app_ctx->server->mrb, "Could not pipefd");
     rv = nghttp2_submit_rst_stream(session, NGHTTP2_FLAG_NONE, stream_data->stream_id, NGHTTP2_INTERNAL_ERROR);
@@ -981,7 +999,12 @@ static int content_cb_reply(app_context *app_ctx, nghttp2_session *session, http
   int64_t size;
 
   TRACER;
+  #ifndef _WIN32 
   rv = pipe(pipefd);
+  #else
+  rv = _pipe(pipefd, 65535, _O_BINARY);
+  #endif
+
   if (rv != 0) {
     rv = nghttp2_submit_rst_stream(session, NGHTTP2_FLAG_NONE, stream_data->stream_id, NGHTTP2_INTERNAL_ERROR);
     mrb_http2_request_rec_free(mrb, r);
@@ -1096,7 +1119,11 @@ static int mruby_reply(app_context *app_ctx, nghttp2_session *session, http2_str
   }
 
   TRACER;
+  #ifndef _WIN32
   rv = pipe(pipefd);
+  #else
+  rv = _pipe(pipefd, 65535, _O_BINARY);
+  #endif
   if (rv != 0) {
     rv = nghttp2_submit_rst_stream(session, NGHTTP2_FLAG_NONE, stream_data->stream_id, NGHTTP2_INTERNAL_ERROR);
     mrb_http2_request_rec_free(mrb, r);
@@ -2159,7 +2186,7 @@ static void init_app_context(app_context *actx, SSL_CTX *ssl_ctx, struct event_b
   actx->ssl_ctx = ssl_ctx;
   actx->evbase = evbase;
 }
-
+#ifndef _WIN32
 static void set_run_user(mrb_state *mrb, mrb_http2_config_t *config)
 {
   uid_t cur_uid = getuid();
@@ -2192,7 +2219,7 @@ static void set_run_user(mrb_state *mrb, mrb_http2_config_t *config)
                mrb_str_new_cstr(mrb, config->run_user));
   }
 }
-
+#endif
 static void mrb_start_listen(struct event_base *evbase, mrb_http2_config_t *config, app_context *app_ctx)
 {
   int rv;
@@ -2240,7 +2267,9 @@ static void mrb_start_listen(struct event_base *evbase, mrb_http2_config_t *conf
 
     if (listener) {
       freeaddrinfo(res);
+      #ifndef _WIN32
       set_run_user(mrb, config);
+      #endif
       return;
     }
   }
@@ -2285,7 +2314,9 @@ static void killall_worker(int flags)
   int i;
   prepare_kill = 1;
   for (i = 0; pid[i] != -1; i++) {
+    #ifndef _WIN32
     kill(pid[i], SIGTERM);
+    #endif
   }
 }
 
@@ -2293,11 +2324,17 @@ static mrb_value mrb_http2_server_run(mrb_state *mrb, mrb_value self)
 {
   mrb_http2_data_t *data = DATA_PTR(self);
   app_context app_ctx;
+  #ifndef _WIN32
   struct sigaction act;
+  #endif
   mrb_http2_config_t *config = data->s->config;
+
+  #ifndef _WIN32
   memset(&act, 0, sizeof(struct sigaction));
+  #endif
 
   if (config->worker > 0) {
+    #ifndef _WIN32
     int i, status;
     for (i = 0; i < config->worker && (pid[i] = fork()) > 0; i++)
       ;
@@ -2306,8 +2343,10 @@ static mrb_value mrb_http2_server_run(mrb_state *mrb, mrb_value self)
       pid[i] = -1;
       while (1) {
         int wpid;
+        #ifndef _WIN32
         act.sa_handler = killall_worker;
         sigaction(SIGTERM, &act, NULL);
+        #endif
         wpid = wait(&status);
         // monitoring workers
         if (prepare_kill) {
@@ -2325,8 +2364,10 @@ static mrb_value mrb_http2_server_run(mrb_state *mrb, mrb_value self)
             }
           }
           if (pid[i] == 0) {
+            #ifndef _WIN32
             act.sa_handler = SIG_DFL;
             sigaction(SIGTERM, &act, NULL);
+            #endif
             mrb_http2_worker_run(mrb, self, data->s, data->r, &app_ctx);
           } else {
             if (config->debug) {
@@ -2338,6 +2379,7 @@ static mrb_value mrb_http2_server_run(mrb_state *mrb, mrb_value self)
     } else if (pid[i] == 0) {
       mrb_http2_worker_run(mrb, self, data->s, data->r, &app_ctx);
     }
+    #endif
   } else {
     mrb_http2_worker_run(mrb, self, data->s, data->r, &app_ctx);
   }
@@ -2423,6 +2465,7 @@ static mrb_value mrb_http2_server_set_logging_cb(mrb_state *mrb, mrb_value self)
 
 static void tune_rlimit(mrb_state *mrb, mrb_http2_config_t *config)
 {
+  #ifndef _WIN32
   struct rlimit r_cfg;
 
   if (config->rlimit_nofile == 0) {
@@ -2448,19 +2491,25 @@ static void tune_rlimit(mrb_state *mrb, mrb_http2_config_t *config)
     mrb_raisef(mrb, E_RUNTIME_ERROR, "tune_rlimit failed: %S", mrb_str_new_cstr(mrb, strerror(err)));
   }
   fprintf(stderr, "tune RLIMIT_NOFILE to %d\n", config->rlimit_nofile);
+  #endif
 }
 
 static mrb_value mrb_http2_server_init(mrb_state *mrb, mrb_value self)
 {
   mrb_http2_server_t *server;
+  #ifndef _WIN32
   struct sigaction act;
+  #endif
+
   mrb_value args;
   mrb_http2_data_t *data = (mrb_http2_data_t *)mrb_malloc(mrb, sizeof(mrb_http2_data_t));
   memset(data, 0, sizeof(mrb_http2_data_t));
 
+  #ifndef _WIN32
   memset(&act, 0, sizeof(struct sigaction));
   act.sa_handler = SIG_IGN;
   sigaction(SIGPIPE, &act, NULL);
+  #endif
 
   mrb_get_args(mrb, "H", &args);
 
@@ -2483,9 +2532,11 @@ static mrb_value mrb_http2_server_init(mrb_state *mrb, mrb_value self)
   TRACER;
 
   if (server->config->daemon) {
+    #ifndef _WIN32
     if (daemon(0, 0) == -1) {
       mrb_raise(mrb, E_RUNTIME_ERROR, "daemonize failed");
     }
+    #endif
   }
 
   return self;
