@@ -593,7 +593,7 @@ static ssize_t large_buf_read_callback(nghttp2_session *session, int32_t stream_
   TRACER;
   return length;
 }
-#define read _read
+
 static ssize_t file_read_callback(nghttp2_session *session, int32_t stream_id, uint8_t *buf, size_t length,
                                   uint32_t *data_flags, nghttp2_data_source *source, void *user_data)
 {
@@ -612,11 +612,8 @@ static ssize_t file_read_callback(nghttp2_session *session, int32_t stream_id, u
   stream_data->readleft -= nread;
   if (nread == 0 || stream_data->readleft == 0) {
     if (stream_data->readleft != 0) {
-      fprintf(stderr, "readleft !=0 %d",stream_data->readleft);
-      TRACER;
       return NGHTTP2_ERR_TEMPORAL_CALLBACK_FAILURE;
     }
-    TRACER;
     *data_flags |= NGHTTP2_DATA_FLAG_EOF;
   }
   TRACER;
@@ -872,7 +869,7 @@ void http_request_done(struct evhttp_request *req, void *user_data)
   }
 
   c->stream_data->readleft = req->body_size;
-  snprintf(r->content_length, 64, "%ld", (long)req->body_size);
+  snprintf(r->content_length, 64, "%ld", req->body_size);
   c->stream_data->upstream_req = req;
   event_base_loopexit(c->session_data->upstream_base, NULL);
 
@@ -1449,11 +1446,7 @@ static int mrb_http2_send_custom_response(app_context *app_ctx, nghttp2_session 
   }
 
   if (send_response(app_ctx, session, r->reshdrs, r->reshdrslen, stream_data) != 0) {
-    #ifndef _WIN32
     close(stream_data->fd);
-    #else
-    closesocket(stream_data->fd);
-    #endif
     return NGHTTP2_ERR_CALLBACK_FAILURE;
   }
   return 0;
@@ -1470,11 +1463,7 @@ static int mrb_http2_send_200_response(app_context *app_ctx, nghttp2_session *se
   r->status = 200;
 
   if (send_response(app_ctx, session, hdrs, ARRLEN(hdrs), stream_data) != 0) {
-    #ifndef _WIN32
     close(stream_data->fd);
-    #else
-    closesocket(stream_data->fd);
-    #endif
     return NGHTTP2_ERR_CALLBACK_FAILURE;
   }
   return 0;
@@ -1724,7 +1713,7 @@ static int server_on_data_chunk_recv_callback(nghttp2_session *session, uint8_t 
   int rv;
 
   if (session_data->app_ctx->server->config->debug) {
-    fprintf(stderr, "%s: datalen = %ld\n", __func__, (long)len);
+    fprintf(stderr, "%s: datalen = %ld\n", __func__, len);
   }
 
   // TODO: buffering and stored file or memory, currently store len byte
@@ -1770,7 +1759,7 @@ static int server_on_data_chunk_recv_callback(nghttp2_session *session, uint8_t 
 }
 
 static int server_on_stream_close_callback(nghttp2_session *session, int32_t stream_id, 
-  uint32_t error_code, void *user_data)
+  nghttp2_error_code error_code, void *user_data)
 {
   http2_session_data *session_data = (http2_session_data *)user_data;
   mrb_state *mrb = session_data->app_ctx->server->mrb;
@@ -1956,10 +1945,6 @@ static http2_session_data *create_http2_session_data(mrb_state *mrb, app_context
   session_data->bev = bufferevent_socket_new(app_ctx->evbase, fd, BEV_OPT_DEFER_CALLBACKS | BEV_OPT_CLOSE_ON_FREE);
 
   tune_packet_buffer(session_data->bev, config);
-  #else
-  //session_data->bev = bufferevent_socket_new(app_ctx->evbase, fd, BEV_OPT_DEFER_CALLBACKS | BEV_OPT_CLOSE_ON_FREE);
-
-  //tune_packet_buffer(session_data->bev, config);
   #endif
 
   if (ssl) {
@@ -2066,8 +2051,8 @@ static void mrb_http2_server_eventcb(struct bufferevent *bev, short events, void
     }
     if (config->tls) {
       mrb_http2_server_session_init(session_data);
-      if (send_server_connection_header(session_data) != 0 ||
-      session_send(session_data) != 0) {
+      if (send_server_connection_header(session_data) != 0 /*||
+      session_send(session_data) != 0*/) {
         delete_http2_session_data(session_data);
         return;
       }
@@ -2099,7 +2084,7 @@ static void mrb_http2_server_eventcb(struct bufferevent *bev, short events, void
       return;
     }
     #endif
-    
+
     return;
   }
   if (config->debug) {
@@ -2136,7 +2121,6 @@ static void mrb_http2_acceptcb(struct evconnlistener *listener, int fd, struct s
   //bufferevent_enable(session_data->bev, EV_WRITE);
   #endif
   if (!app_ctx->server->config->tls) {
-    TRACER;
     bufferevent_enable(session_data->bev, EV_READ | EV_WRITE);
     mrb_http2_server_session_init(session_data);
     if (send_server_connection_header(session_data) != 0) {
@@ -2345,7 +2329,6 @@ static void mrb_start_listen(struct event_base *evbase, mrb_http2_config_t *conf
       listener =
           evconnlistener_new(evbase, mrb_http2_acceptcb, app_ctx, LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE, -1, fd);
     } else {
-      TRACER;
       listener = evconnlistener_new_bind(evbase, mrb_http2_acceptcb, app_ctx, LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE,
                                          -1, rp->ai_addr, rp->ai_addrlen);
     }
@@ -2958,7 +2941,7 @@ static mrb_value mrb_http2_server_total_stream_requests(mrb_state *mrb, mrb_valu
   mrb_http2_data_t *data = DATA_PTR(self);
   mrb_http2_worker_t *worker = data->s->worker;
 
-  return mrb_fixnum_value((int)worker->stream_requests_per_worker);
+  return mrb_fixnum_value(worker->stream_requests_per_worker);
 }
 
 static mrb_value mrb_http2_server_total_session_requests(mrb_state *mrb, mrb_value self)
@@ -3061,7 +3044,7 @@ static mrb_value mrb_http2_server_echo(mrb_state *mrb, mrb_value self)
 
   rv = write(write_fd, str, len);
   r->write_size += len;
-  rv += write(write_fd, sep, (int)sep_len);
+  rv += write(write_fd, sep, sep_len);
   r->write_size += sep_len;
 
   return mrb_fixnum_value(rv);
@@ -3181,7 +3164,7 @@ static mrb_value mrb_http2_set_reshdrs(mrb_state *mrb, mrb_value self)
     MRB_HTTP2_CREATE_NV_OBJ(mrb, &r->reshdrs[i], key, val);
   }
 
-  return mrb_fixnum_value((int)r->reshdrslen);
+  return mrb_fixnum_value(r->reshdrslen);
 }
 
 void mrb_http2_server_class_init(mrb_state *mrb, struct RClass *http2)
