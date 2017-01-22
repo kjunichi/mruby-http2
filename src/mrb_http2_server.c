@@ -1630,8 +1630,11 @@ static int mrb_http2_process_request(nghttp2_session *session, http2_session_dat
   }
 
   // static contents response
-  //fd = open(r->filename, O_RDONLY);
+  #ifndef _WIN32
+  fd = open(r->filename, O_RDONLY);
+  #else
   fd = _sopen(r->filename, _O_BINARY|_O_RDONLY,_SH_DENYNO, _S_IREAD);
+  #endif
 
   TRACER;
   if (fd == -1) {
@@ -1758,8 +1761,8 @@ static int server_on_data_chunk_recv_callback(nghttp2_session *session, uint8_t 
   return 0;
 }
 
-static int server_on_stream_close_callback(nghttp2_session *session, int32_t stream_id, 
-  nghttp2_error_code error_code, void *user_data)
+static int server_on_stream_close_callback(nghttp2_session *session, int32_t stream_id, nghttp2_error_code error_code, 
+                                           void *user_data)
 {
   http2_session_data *session_data = (http2_session_data *)user_data;
   mrb_state *mrb = session_data->app_ctx->server->mrb;
@@ -2050,41 +2053,41 @@ static void mrb_http2_server_eventcb(struct bufferevent *bev, short events, void
       fprintf(stderr, "%s connected\n", session_data->client_addr);
     }
     if (config->tls) {
+      #ifndef _WIN32
       mrb_http2_server_session_init(session_data);
-      if (send_server_connection_header(session_data) != 0 /*||
-      session_send(session_data) != 0*/) {
+      if (send_server_connection_header(session_data) != 0) {
         delete_http2_session_data(session_data);
         return;
       }
-    }
-    #ifdef _WIN32
-    const unsigned char *alpn = NULL;
-    unsigned int alpnlen = 0;
-    SSL *ssl;
-    ssl = bufferevent_openssl_get_ssl(session_data->bev);
+      #else
+      const unsigned char *alpn = NULL;
+      unsigned int alpnlen = 0;
+      SSL *ssl;
+      ssl = bufferevent_openssl_get_ssl(session_data->bev);
 
-    SSL_get0_next_proto_negotiated(ssl, &alpn, &alpnlen);
+      SSL_get0_next_proto_negotiated(ssl, &alpn, &alpnlen);
 #if OPENSSL_VERSION_NUMBER >= 0x10002000L
-    if (alpn == NULL) {
-      SSL_get0_alpn_selected(ssl, &alpn, &alpnlen);
-    }
+      if (alpn == NULL) {
+        SSL_get0_alpn_selected(ssl, &alpn, &alpnlen);
+      }
 #endif // OPENSSL_VERSION_NUMBER >= 0x10002000L
 
-    if (alpn == NULL || alpnlen != 2 || memcmp("h2", alpn, 2) != 0) {
-      fprintf(stderr, "%s h2 is not negotiated\n", session_data->client_addr);
-      delete_http2_session_data(session_data);
-      return;
-    }
+      if (alpn == NULL || alpnlen != 2 || memcmp("h2", alpn, 2) != 0) {
+        fprintf(stderr, "%s h2 is not negotiated\n", session_data->client_addr);
+        delete_http2_session_data(session_data);
+        return;
+      }
 
-    mrb_http2_server_session_init(session_data);
+      mrb_http2_server_session_init(session_data);
 
-    if (send_server_connection_header(session_data) != 0 ||
+      if (send_server_connection_header(session_data) != 0 ||
         session_send(session_data) != 0) {
-      delete_http2_session_data(session_data);
-      return;
+        delete_http2_session_data(session_data);
+        return;
+      }
+      #endif
     }
-    #endif
-
+    
     return;
   }
   if (config->debug) {

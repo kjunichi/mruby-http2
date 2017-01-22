@@ -3,8 +3,16 @@ MRuby::Gem::Specification.new('mruby-http2') do |spec|
   spec.authors = 'MATSUMOTO Ryosuke'
   spec.version = '0.0.1'
   spec.summary = 'HTTP/2 Client and Server Module'
+
+  if !ENV['VisualStudioVersion'] && !ENV['VSINSTALLDIR']
+  spec.linker.libraries << ['ssl', 'crypto', 'z', 'event', 'event_openssl', 'curl']
+  else
   spec.linker.libraries << ['libssl', 'libcrypto', 'zlibd', 'event','nghttp2', 'Advapi32']
+  spec.linker.flags = "/nodefaultlib:msvcrtd"
+  end
+  
   spec.add_dependency('mruby-simplehttp')
+  spec.cc.flags << "-DMRB_HTTP2_TRACER=1"
   if RUBY_PLATFORM =~ /darwin/i
     spec.cc.flags << "-I/usr/local/include"
     spec.linker.library_paths << "/usr/local/lib"
@@ -29,6 +37,7 @@ MRuby::Gem::Specification.new('mruby-http2') do |spec|
   end
 
   FileUtils.mkdir_p build_dir
+  
   if !ENV['VisualStudioVersion'] && !ENV['VSINSTALLDIR']
   if ! File.exists? nghttp2_dir
     Dir.chdir(build_dir) do
