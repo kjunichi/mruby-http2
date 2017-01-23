@@ -723,10 +723,11 @@ static mrb_value mrb_http2_fetch_uri(mrb_state *mrb, const struct mrb_http2_uri_
   SSL_CTX_free(ssl_ctx);
   #ifndef _WIN32
   shutdown(fd, SHUT_WR);
+  close(fd);
   #else 
   shutdown(fd, SD_SEND);
-  #endif
   closesocket(fd);
+  #endif
   mrb_http2_request_free(mrb, &req);
 
   return conn.response;
