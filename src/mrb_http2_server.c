@@ -302,11 +302,7 @@ static void delete_http2_stream_data(mrb_state *mrb, http2_session_data *session
 {
   TRACER;
   if (stream_data->fd != -1) {
-    #ifndef _WIN32
     close(stream_data->fd);
-    #else
-    close(stream_data->fd);
-    #endif
   }
   mrb_free(mrb, stream_data->unparsed_uri);
   mrb_free_unless_null(mrb, stream_data->percent_encode_uri);
@@ -346,7 +342,6 @@ static void delete_http2_session_data(http2_session_data *session_data)
   if (config->tls) {
     ssl = bufferevent_openssl_get_ssl(session_data->bev);
     if (ssl) {
-      TRACER;
       SSL_set_shutdown(ssl, SSL_RECEIVED_SHUTDOWN);
       ERR_clear_error();
       SSL_shutdown(ssl);
@@ -402,7 +397,7 @@ static int session_recv(http2_session_data *session_data)
 
   TRACER;
   if (session_data->app_ctx->server->config->debug) {
-    fprintf(stderr, "%s: datalen = %ld\n", __func__, (long)datalen);
+    fprintf(stderr, "%s: datalen = %ld\n", __func__, datalen);
   }
   rv = nghttp2_session_mem_recv(session_data->session, data, datalen);
   if (rv < 0) {
@@ -445,7 +440,7 @@ static ssize_t server_send_callback(nghttp2_session *session, const uint8_t *dat
 
   bufferevent_write(session_data->bev, data, length);
   TRACER;
-  return (ssize_t)length;
+  return length;
 }
 
 /* Returns int value of hex string character |c| */
@@ -605,7 +600,6 @@ static ssize_t file_read_callback(nghttp2_session *session, int32_t stream_id, u
   TRACER;
 
   if (nread == -1) {
-    TRACER;
     return NGHTTP2_ERR_TEMPORAL_CALLBACK_FAILURE;
   }
 

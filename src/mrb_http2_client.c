@@ -788,8 +788,8 @@ static mrb_value mrb_http2_client_create_session(mrb_state *mrb, mrb_value self)
 static mrb_value mrb_http2_client_request_stream(mrb_state *mrb, mrb_value self)
 {
   #ifndef _WIN32
-  nfds_t npollfds = 1;
   struct pollfd pollfds[1];
+  nfds_t npollfds = 1;
   #else
   ULONG npollfds = 1;
   WSAPOLLFD pollfds[1];
@@ -861,8 +861,8 @@ static mrb_value mrb_http2_get_uri(mrb_state *mrb, mrb_http2_context_t *ctx)
   int rv;
   int fd;
   #ifndef _WIN32
-  nfds_t npollfds = 1;
   struct pollfd pollfds[1];
+  nfds_t npollfds = 1;
   #else
   ULONG npollfds = 1;
   WSAPOLLFD pollfds[1];
